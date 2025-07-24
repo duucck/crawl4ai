@@ -7,8 +7,8 @@ from abc import ABC, abstractmethod
 from typing import Callable, Dict, Any, List, Union
 from typing import Optional, AsyncGenerator, Final
 import os
-from playwright.async_api import Page, Error
-from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+from patchright.async_api import Page, Error
+from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
 import hashlib
@@ -1048,8 +1048,9 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
 
         finally:
             # If no session_id is given we should close the page
-            all_contexts = page.context.browser.contexts
-            total_pages = sum(len(context.pages) for context in all_contexts)                
+            # all_contexts = page.context.browser.contexts
+            # total_pages = sum(len(context.pages) for context in all_contexts)
+            total_pages = len(page.context.pages)
             if config.session_id:
                 pass
             elif total_pages <= 1 and (self.browser_config.use_managed_browser or self.browser_config.headless):

@@ -660,7 +660,7 @@ async def get_chromium_path(browser_type) -> str:
         with open(path_file, "r") as f:
             return f.read()
 
-    from playwright.async_api import async_playwright
+    from patchright.async_api import async_playwright
     async with async_playwright() as p:
         browsers = {
             'chromium': p.chromium,

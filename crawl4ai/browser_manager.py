@@ -9,7 +9,7 @@ import psutil
 import signal
 import subprocess
 import shlex
-from playwright.async_api import BrowserContext
+from patchright.async_api import BrowserContext
 import hashlib
 from .js_snippet import load_js_script
 from .config import DOWNLOAD_PAGE_TIMEOUT
@@ -600,6 +600,7 @@ class BrowserManager:
 
         # Browser state
         self.browser = None
+        self.persistent_browser_context = None
         self.default_context = None
         self.managed_browser = None
         self.playwright = None
@@ -678,13 +679,13 @@ class BrowserManager:
 
             # Launch appropriate browser type
             if self.config.browser_type == "firefox":
-                self.browser = await self.playwright.firefox.launch(**browser_args)
+                self.persistent_browser_context = await self.playwright.firefox.launch_persistent_context(**browser_args)
             elif self.config.browser_type == "webkit":
-                self.browser = await self.playwright.webkit.launch(**browser_args)
+                self.persistent_browser_context = await self.playwright.webkit.launch_persistent_context(**browser_args)
             else:
-                self.browser = await self.playwright.chromium.launch(**browser_args)
+                self.persistent_browser_context = await self.playwright.chromium.launch_persistent_context(**browser_args)
 
-            self.default_context = self.browser
+            self.default_context = self.persistent_browser_context
 
     async def _verify_cdp_ready(self, cdp_url: str) -> bool:
         """Verify CDP endpoint is ready with exponential backoff"""
@@ -750,11 +751,24 @@ class BrowserManager:
 
         # Deduplicate args
         args = list(dict.fromkeys(args))
-        
-        browser_args = {"headless": self.config.headless, "args": args}
+
+        browser_args = {
+            "user_data_dir": self.config.user_data_dir,
+            "headless": self.config.headless,
+            "args": args,
+        }
 
         if self.config.chrome_channel:
             browser_args["channel"] = self.config.chrome_channel
+
+        if self.config.locale:
+            browser_args["locale"] = self.config.locale
+
+        if self.config.timezone_id:
+            browser_args["timezone_id"] = self.config.timezone_id
+
+        if self.config.no_viewport:
+            browser_args["no_viewport"] = self.config.no_viewport
 
         if self.config.accept_downloads:
             browser_args["downloads_path"] = self.config.downloads_path or os.path.join(
@@ -768,7 +782,7 @@ class BrowserManager:
                 DeprecationWarning,
             )
         if self.config.proxy_config:
-            from playwright.async_api import ProxySettings
+            from patchright.async_api import ProxySettings
 
             proxy_settings = ProxySettings(
                 server=self.config.proxy_config.server,
@@ -1098,7 +1112,8 @@ class BrowserManager:
                     context = self.contexts_by_config[config_signature]
                 else:
                     # Create and setup a new context
-                    context = await self.create_browser_context(crawlerRunConfig)
+                    # context = await self.create_browser_context(crawlerRunConfig)
+                    context = self.persistent_browser_context
                     await self.setup_context(context, crawlerRunConfig)
                     self.contexts_by_config[config_signature] = context
 
@@ -1160,6 +1175,10 @@ class BrowserManager:
                     params={"error": str(e)}
                 )
         self.contexts_by_config.clear()
+
+        if self.persistent_browser_context:
+            await self.persistent_browser_context.close()
+            self.persistent_browser_context = None
 
         if self.browser:
             await self.browser.close()

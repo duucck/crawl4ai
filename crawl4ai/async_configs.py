@@ -428,9 +428,12 @@ class BrowserConfig:
         channel: str = "chromium",
         proxy: str = None,
         proxy_config: Union[ProxyConfig, dict, None] = None,
+        locale: str = None,
+        timezone_id: str = None,
         viewport_width: int = 1080,
         viewport_height: int = 600,
         viewport: dict = None,
+        no_viewport: bool = None,
         accept_downloads: bool = False,
         downloads_path: str = None,
         storage_state: Union[str, dict, None] = None,
@@ -485,12 +488,15 @@ class BrowserConfig:
             self.proxy_config = ProxyConfig.from_string(self.proxy)
             self.proxy = None
 
+        self.locale = locale
+        self.timezone_id = timezone_id
         self.viewport_width = viewport_width
         self.viewport_height = viewport_height
         self.viewport = viewport
         if self.viewport is not None:
             self.viewport_width = self.viewport.get("width", 1080)
             self.viewport_height = self.viewport.get("height", 600)
+        self.no_viewport = no_viewport
         self.accept_downloads = accept_downloads
         self.downloads_path = downloads_path
         self.storage_state = storage_state
@@ -562,8 +568,11 @@ class BrowserConfig:
             channel=kwargs.get("channel", "chromium"),
             proxy=kwargs.get("proxy"),
             proxy_config=kwargs.get("proxy_config", None),
+            locale = kwargs.get("locale", None),
+            timezone_id = kwargs.get("timezone_id", None),
             viewport_width=kwargs.get("viewport_width", 1080),
             viewport_height=kwargs.get("viewport_height", 600),
+            no_viewport=kwargs.get("no_viewport", None),
             accept_downloads=kwargs.get("accept_downloads", False),
             downloads_path=kwargs.get("downloads_path"),
             storage_state=kwargs.get("storage_state"),
@@ -599,8 +608,11 @@ class BrowserConfig:
             "channel": self.channel,
             "proxy": self.proxy,
             "proxy_config": self.proxy_config,
+            "locale": self.locale,
+            "timezone_id": self.timezone_id,
             "viewport_width": self.viewport_width,
             "viewport_height": self.viewport_height,
+            "no_viewport": self.no_viewport,
             "accept_downloads": self.accept_downloads,
             "downloads_path": self.downloads_path,
             "storage_state": self.storage_state,

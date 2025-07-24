@@ -8,7 +8,7 @@ from crawl4ai import AsyncWebCrawler, CacheMode
 from crawl4ai import JsonCssExtractionStrategy
 from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig
 import json
-from playwright.async_api import Page, BrowserContext
+from patchright.async_api import Page, BrowserContext
 
 
 async def extract_amazon_products():

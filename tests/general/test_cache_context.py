@@ -1,6 +1,6 @@
 import asyncio
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
-from playwright.async_api import Page, BrowserContext
+from patchright.async_api import Page, BrowserContext
 
 async def test_reuse_context_by_config():
     # We will store each context ID in these maps to confirm reuse
