@@ -12,7 +12,7 @@ from crawl4ai.browser.manager import BrowserManager, UnavailableBehavior
 from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig
 from crawl4ai.async_logger import AsyncLogger
 
-import playwright
+import patchright
 
 SAFE_URLS = [
     "https://example.com",
@@ -444,7 +444,7 @@ async def high_volume_demo():
                     "page_acquisition_time": page_acquisition_time,
                     "navigation_time": navigation_time
                 }
-            except playwright._impl._errors.TimeoutError as e:
+            except patchright._impl._errors.TimeoutError as e:
                 # print(f"Page {index}: Navigation timed out - {e}")
                 return {
                     "index": index,

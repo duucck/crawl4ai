@@ -218,7 +218,7 @@ class BrowserProfiler:
                 termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         
         try:
-            from playwright.async_api import async_playwright
+            from patchright.async_api import async_playwright
 
             # Start the browser
             # await managed_browser.start()
