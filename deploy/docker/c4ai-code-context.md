@@ -6940,7 +6940,7 @@ import sys
 import shutil
 import tempfile
 import subprocess
-from playwright.async_api import BrowserContext
+from patchright.async_api import BrowserContext
 import hashlib
 from .js_snippet import load_js_script
 from .config import DOWNLOAD_PAGE_TIMEOUT
@@ -7379,7 +7379,7 @@ class BrowserManager:
     
     @classmethod
     async def get_playwright(cls):
-        from playwright.async_api import async_playwright
+        from patchright.async_api import async_playwright
         cls._playwright_instance = await async_playwright().start()
         return cls._playwright_instance    
 
@@ -7435,7 +7435,7 @@ class BrowserManager:
         if self.playwright is not None:
             await self.close()
             
-        from playwright.async_api import async_playwright
+        from patchright.async_api import async_playwright
 
         self.playwright = await async_playwright().start()
 
@@ -7526,7 +7526,7 @@ class BrowserManager:
                 DeprecationWarning,
             )
         if self.config.proxy_config:
-            from playwright.async_api import ProxySettings
+            from patchright.async_api import ProxySettings
 
             proxy_settings = ProxySettings(
                 server=self.config.proxy_config.server,
@@ -9075,7 +9075,7 @@ if __name__ == "__main__":
 
 ```py
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
-from playwright.async_api import Page, BrowserContext
+from patchright.async_api import Page, BrowserContext
 
 
 async def main():
