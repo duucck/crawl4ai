@@ -33,7 +33,7 @@ Below is an example demonstration.
 import asyncio
 import json
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
-from playwright.async_api import Page, BrowserContext
+from patchright.async_api import Page, BrowserContext
 
 async def main():
     print("🔗 Hooks Example: Demonstrating recommended usage")

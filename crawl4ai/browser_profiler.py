@@ -421,7 +421,7 @@ class BrowserProfiler:
                 await self._listen_fallback(user_done_event, check_browser_process, "PROFILE")
         
         try:
-            from playwright.async_api import async_playwright
+            from patchright.async_api import async_playwright
 
             # Start the browser
             # await managed_browser.start()

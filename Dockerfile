@@ -155,7 +155,7 @@ RUN if [ "$INSTALL_TYPE" = "all" ] ; then \
 RUN pip install --no-cache-dir --upgrade pip && \
     /tmp/install.sh && \
     python -c "import crawl4ai; print('✅ crawl4ai is ready to rock!')" && \
-    python -c "from playwright.sync_api import sync_playwright; print('✅ Playwright is feeling dramatic!')"
+    python -c "from patchright.sync_api import sync_playwright; print('✅ Playwright is feeling dramatic!')"
 
 RUN crawl4ai-setup
 
