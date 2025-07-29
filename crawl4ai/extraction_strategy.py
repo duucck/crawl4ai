@@ -1160,7 +1160,7 @@ class JsonElementExtractionStrategy(ExtractionStrategy):
             value = match.group(1) if match else None
 
         if "transform" in field:
-            value = self._apply_transform(value, field["transform"])
+            value = self._apply_transform(value, field["transform"], field["pattern"])
 
         return value if value is not None else field.get("default")
 
@@ -1199,7 +1199,7 @@ class JsonElementExtractionStrategy(ExtractionStrategy):
                 item[field["name"]] = value
         return item
 
-    def _apply_transform(self, value, transform):
+    def _apply_transform(self, value, transform, pattern):
         """
         Apply a transformation to a value.
 
@@ -1222,6 +1222,10 @@ class JsonElementExtractionStrategy(ExtractionStrategy):
             return value.upper()
         elif transform == "strip":
             return value.strip()
+        elif transform == "prepend" and pattern:
+            return f"{pattern}{value}"
+        elif transform == "append" and pattern:
+            return f"{value}{pattern}"
         return value
 
     def _compute_field(self, item, field):
