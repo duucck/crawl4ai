@@ -885,7 +885,7 @@ class BrowserManager:
             Context: Browser context object with the specified configurations
         """
         # Base settings
-        user_agent = self.config.headers.get("User-Agent", self.config.user_agent) 
+        # user_agent = self.config.headers.get("User-Agent", self.config.user_agent)
         viewport_settings = {
             "width": self.config.viewport_width,
             "height": self.config.viewport_height,
@@ -949,7 +949,7 @@ class BrowserManager:
 
         # Common context settings
         context_settings = {
-            "user_agent": user_agent,
+            # "user_agent": user_agent,
             "viewport": viewport_settings,
             "proxy": proxy_settings,
             "accept_downloads": self.config.accept_downloads,

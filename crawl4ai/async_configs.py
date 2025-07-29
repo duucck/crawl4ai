@@ -443,12 +443,13 @@ class BrowserConfig:
         verbose: bool = True,
         cookies: list = None,
         headers: dict = None,
-        user_agent: str = (
+        user_agent: str = None,
+        # user_agent: str = (
             # "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) AppleWebKit/537.36 "
             # "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
             # "(KHTML, like Gecko) Chrome/116.0.5845.187 Safari/604.1 Edg/117.0.2045.47"
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/116.0.0.0 Safari/537.36"
-        ),
+        #     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/116.0.0.0 Safari/537.36"
+        # ),
         user_agent_mode: str = "",
         user_agent_generator_config: dict = {},
         text_mode: bool = False,
@@ -524,8 +525,8 @@ class BrowserConfig:
         else:
             pass
 
-        self.browser_hint = UAGen.generate_client_hints(self.user_agent)
-        self.headers.setdefault("sec-ch-ua", self.browser_hint)
+        # self.browser_hint = UAGen.generate_client_hints(self.user_agent)
+        # self.headers.setdefault("sec-ch-ua", self.browser_hint)
 
         # Set appropriate browser management flags based on browser_mode
         if self.browser_mode == "builtin":
@@ -1217,6 +1218,8 @@ class CrawlerRunConfig():
         scan_full_page: bool = False,
         scroll_delay: float = 0.2,
         max_scroll_steps: Optional[int] = None,
+        max_scroll_retry_times: Optional[int] = None,
+        max_effective_scroll_times: Optional[int] = None,
         process_iframes: bool = False,
         remove_overlay_elements: bool = False,
         simulate_user: bool = False,
@@ -1332,6 +1335,8 @@ class CrawlerRunConfig():
         self.scan_full_page = scan_full_page
         self.scroll_delay = scroll_delay
         self.max_scroll_steps = max_scroll_steps
+        self.max_scroll_retry_times = max_scroll_retry_times
+        self.max_effective_scroll_times = max_effective_scroll_times
         self.process_iframes = process_iframes
         self.remove_overlay_elements = remove_overlay_elements
         self.simulate_user = simulate_user
@@ -1606,6 +1611,8 @@ class CrawlerRunConfig():
             scan_full_page=kwargs.get("scan_full_page", False),
             scroll_delay=kwargs.get("scroll_delay", 0.2),
             max_scroll_steps=kwargs.get("max_scroll_steps"),
+            max_scroll_retry_times=kwargs.get("max_scroll_retry_times"),
+            max_effective_scroll_times=kwargs.get("max_effective_scroll_times"),
             process_iframes=kwargs.get("process_iframes", False),
             remove_overlay_elements=kwargs.get("remove_overlay_elements", False),
             simulate_user=kwargs.get("simulate_user", False),
@@ -1724,6 +1731,8 @@ class CrawlerRunConfig():
             "scan_full_page": self.scan_full_page,
             "scroll_delay": self.scroll_delay,
             "max_scroll_steps": self.max_scroll_steps,
+            "max_scroll_retry_times": self.max_scroll_retry_times,
+            "max_effective_scroll_times": self.max_effective_scroll_times,
             "process_iframes": self.process_iframes,
             "remove_overlay_elements": self.remove_overlay_elements,
             "simulate_user": self.simulate_user,

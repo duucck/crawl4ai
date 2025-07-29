@@ -867,15 +867,6 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
                         params={"error": str(e)},
                     )
 
-            # Handle full page scanning
-            if config.scan_full_page:
-                # await self._handle_full_page_scan(page, config.scroll_delay)
-                await self._handle_full_page_scan(page, config.scroll_delay, config.max_scroll_steps)
-
-            # Handle virtual scroll if configured
-            if config.virtual_scroll_config:
-                await self._handle_virtual_scroll(page, config.virtual_scroll_config)
-
             # Execute JavaScript if provided
             # if config.js_code:
             #     if isinstance(config.js_code, str):
@@ -922,6 +913,21 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
                     )
                 except Exception as e:
                     raise RuntimeError(f"Wait condition failed: {str(e)}")
+
+            # Handle full page scanning
+            if config.scan_full_page:
+                # await self._handle_full_page_scan(page, config.scroll_delay)
+                await self._handle_full_page_scan(
+                    page,
+                    config.scroll_delay,
+                    config.max_scroll_steps,
+                    config.max_scroll_retry_times,
+                    config.max_effective_scroll_times
+                )
+
+            # Handle virtual scroll if configured
+            if config.virtual_scroll_config:
+                await self._handle_virtual_scroll(page, config.virtual_scroll_config)
 
             # Update image dimensions if needed
             if not self.browser_config.text_mode:
@@ -1074,7 +1080,14 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
                 await page.close()
 
     # async def _handle_full_page_scan(self, page: Page, scroll_delay: float = 0.1):
-    async def _handle_full_page_scan(self, page: Page, scroll_delay: float = 0.1, max_scroll_steps: Optional[int] = None):
+    async def _handle_full_page_scan(
+            self,
+            page: Page,
+            scroll_delay: float = 0.1,
+            max_scroll_steps: Optional[int] = None,
+            max_scroll_retry_times: Optional[int] = None,
+            max_effective_scroll_times: Optional[int] = None
+        ):
         """
         Helper method to handle full page scanning.
 
@@ -1105,6 +1118,9 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
             )
             current_position = viewport_height
 
+            origin_dimensions = await self.get_page_dimensions(page)
+            origin_height = origin_dimensions["height"]
+
             # await page.evaluate(f"window.scrollTo(0, {current_position})")
             await self.safe_scroll(page, 0, current_position, delay=scroll_delay)
             # await self.csp_scroll_to(page, 0, current_position)
@@ -1115,15 +1131,31 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
             total_height = dimensions["height"]
 
             scroll_step_count = 0
-            while current_position < total_height:
+            scroll_end_retry_count = 0
+
+            effective_scroll_count = 0
+            if origin_height < total_height:
+                effective_scroll_count += 1
+
+            # while current_position < total_height:
+            while True:
+                if max_scroll_retry_times and scroll_end_retry_count >= max_scroll_retry_times:
+                    break
+                if max_effective_scroll_times and effective_scroll_count >= max_effective_scroll_times:
+                    break
                 #### 
                 # NEW FEATURE: Check if we've reached the maximum allowed scroll steps
                 # This prevents infinite scrolling on very long pages or infinite scroll scenarios
                 # If max_scroll_steps is None, this check is skipped (unlimited scrolling - original behavior)
                 ####
-                if max_scroll_steps is not None and scroll_step_count >= max_scroll_steps:
+                if max_scroll_steps and scroll_step_count >= max_scroll_steps:
                     break
-                current_position = min(current_position + viewport_height, total_height)
+
+                if current_position < total_height:
+                    scroll_end_retry_count = 0
+                    current_position = min(current_position + viewport_height, total_height)
+                else:
+                    scroll_end_retry_count += 1
                 await self.safe_scroll(page, 0, current_position, delay=scroll_delay)
 
                 # Increment the step counter for max_scroll_steps tracking
@@ -1138,6 +1170,7 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
 
                 if new_height > total_height:
                     total_height = new_height
+                    effective_scroll_count += 1
 
             # await page.evaluate("window.scrollTo(0, 0)")
             await self.safe_scroll(page, 0, 0)
