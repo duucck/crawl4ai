@@ -1175,6 +1175,7 @@ class CrawlerRunConfig():
         markdown_generator: MarkdownGenerationStrategy = DefaultMarkdownGenerator(),
         only_text: bool = False,
         css_selector: str = None,
+        excluded_elements: List[str] = None,
         target_elements: List[str] = None,
         excluded_tags: list = None,
         excluded_selector: str = None,
@@ -1282,6 +1283,7 @@ class CrawlerRunConfig():
         self.markdown_generator = markdown_generator
         self.only_text = only_text
         self.css_selector = css_selector
+        self.excluded_elements = excluded_elements or []
         self.target_elements = target_elements or []
         self.excluded_tags = excluded_tags or []
         self.excluded_selector = excluded_selector or ""
@@ -1569,6 +1571,7 @@ class CrawlerRunConfig():
             markdown_generator=kwargs.get("markdown_generator"),
             only_text=kwargs.get("only_text", False),
             css_selector=kwargs.get("css_selector"),
+            excluded_elements=kwargs.get("excluded_elements", []),
             target_elements=kwargs.get("target_elements", []),
             excluded_tags=kwargs.get("excluded_tags", []),
             excluded_selector=kwargs.get("excluded_selector", ""),
@@ -1694,6 +1697,7 @@ class CrawlerRunConfig():
             "markdown_generator": self.markdown_generator,
             "only_text": self.only_text,
             "css_selector": self.css_selector,
+            "excluded_elements": self.excluded_elements,
             "target_elements": self.target_elements,
             "excluded_tags": self.excluded_tags,
             "excluded_selector": self.excluded_selector,

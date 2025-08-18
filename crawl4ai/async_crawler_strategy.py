@@ -962,13 +962,21 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
                 try:
                     # Handle comma-separated selectors by splitting them
                     selectors = [s.strip() for s in config.css_selector.split(',')]
+                    excluded_selectors = ", ".join(getattr(config, 'excluded_elements', []))
                     html_parts = []
                     
                     for selector in selectors:
                         try:
                             content = await self.adapter.evaluate(page,
                                 f"""Array.from(document.querySelectorAll("{selector}"))
-                                    .map(el => el.outerHTML)
+                                    .map(el => {{
+                                        if ("{excluded_selectors}".length > 0) {{
+                                            const clone = el.cloneNode(true);
+                                            clone.querySelectorAll("{excluded_selectors}").forEach(nodeToRemove => nodeToRemove.remove());
+                                            return clone.outerHTML;
+                                        }}
+                                        return el.outerHTML;
+                                    }})
                                     .join('')"""
                             )
                             html_parts.append(content)
