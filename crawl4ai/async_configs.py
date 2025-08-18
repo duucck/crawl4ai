@@ -20,6 +20,7 @@ from .chunking_strategy import ChunkingStrategy, RegexChunking
 from .markdown_generation_strategy import MarkdownGenerationStrategy, DefaultMarkdownGenerator
 from .content_scraping_strategy import ContentScrapingStrategy, LXMLWebScrapingStrategy
 from .deep_crawling import DeepCrawlStrategy
+from .table_extraction import TableExtractionStrategy, DefaultTableExtraction
 
 from .cache_context import CacheMode
 from .proxy_strategy import ProxyRotationStrategy
@@ -452,6 +453,10 @@ class BrowserConfig:
             self.chrome_channel = ""
         self.proxy = proxy
         self.proxy_config = proxy_config
+        if isinstance(self.proxy_config, dict):
+            self.proxy_config = ProxyConfig.from_dict(self.proxy_config)
+        if isinstance(self.proxy_config, str):
+            self.proxy_config = ProxyConfig.from_string(self.proxy_config)
 
 
         self.locale = locale
@@ -991,6 +996,8 @@ class CrawlerRunConfig():
                                          Default: False.
         table_score_threshold (int): Minimum score threshold for processing a table.
                                      Default: 7.
+        table_extraction (TableExtractionStrategy): Strategy to use for table extraction.
+                                     Default: DefaultTableExtraction with table_score_threshold.
 
         # Virtual Scroll Parameters
         virtual_scroll_config (VirtualScrollConfig or dict or None): Configuration for handling virtual scroll containers.
@@ -1059,6 +1066,7 @@ class CrawlerRunConfig():
         markdown_generator: MarkdownGenerationStrategy = DefaultMarkdownGenerator(),
         only_text: bool = False,
         css_selector: str = None,
+        excluded_elements: List[str] = None,
         target_elements: List[str] = None,
         excluded_tags: list = None,
         excluded_selector: str = None,
@@ -1119,6 +1127,7 @@ class CrawlerRunConfig():
         image_description_min_word_threshold: int = IMAGE_DESCRIPTION_MIN_WORD_THRESHOLD,
         image_score_threshold: int = IMAGE_SCORE_THRESHOLD,
         table_score_threshold: int = 7,
+        table_extraction: TableExtractionStrategy = None,
         exclude_external_images: bool = False,
         exclude_all_images: bool = False,
         # Link and Domain Handling Parameters
@@ -1164,6 +1173,7 @@ class CrawlerRunConfig():
         self.markdown_generator = markdown_generator
         self.only_text = only_text
         self.css_selector = css_selector
+        self.excluded_elements = excluded_elements or []
         self.target_elements = target_elements or []
         self.excluded_tags = excluded_tags or []
         self.excluded_selector = excluded_selector or ""
@@ -1174,6 +1184,11 @@ class CrawlerRunConfig():
         self.parser_type = parser_type
         self.scraping_strategy = scraping_strategy or LXMLWebScrapingStrategy()
         self.proxy_config = proxy_config
+        if isinstance(proxy_config, dict):
+            self.proxy_config = ProxyConfig.from_dict(proxy_config)
+        if isinstance(proxy_config, str):
+            self.proxy_config = ProxyConfig.from_string(proxy_config)
+
         self.proxy_rotation_strategy = proxy_rotation_strategy
         
         # Browser Location and Identity Parameters
@@ -1232,6 +1247,12 @@ class CrawlerRunConfig():
         self.exclude_external_images = exclude_external_images
         self.exclude_all_images = exclude_all_images
         self.table_score_threshold = table_score_threshold
+        
+        # Table extraction strategy (default to DefaultTableExtraction if not specified)
+        if table_extraction is None:
+            self.table_extraction = DefaultTableExtraction(table_score_threshold=table_score_threshold)
+        else:
+            self.table_extraction = table_extraction
 
         # Link and Domain Handling Parameters
         self.exclude_social_media_domains = (
@@ -1439,6 +1460,7 @@ class CrawlerRunConfig():
             markdown_generator=kwargs.get("markdown_generator"),
             only_text=kwargs.get("only_text", False),
             css_selector=kwargs.get("css_selector"),
+            excluded_elements=kwargs.get("excluded_elements", []),
             target_elements=kwargs.get("target_elements", []),
             excluded_tags=kwargs.get("excluded_tags", []),
             excluded_selector=kwargs.get("excluded_selector", ""),
@@ -1505,6 +1527,7 @@ class CrawlerRunConfig():
                 "image_score_threshold", IMAGE_SCORE_THRESHOLD
             ),
             table_score_threshold=kwargs.get("table_score_threshold", 7),
+            table_extraction=kwargs.get("table_extraction", None),
             exclude_all_images=kwargs.get("exclude_all_images", False),
             exclude_external_images=kwargs.get("exclude_external_images", False),
             # Link and Domain Handling Parameters
@@ -1562,6 +1585,7 @@ class CrawlerRunConfig():
             "markdown_generator": self.markdown_generator,
             "only_text": self.only_text,
             "css_selector": self.css_selector,
+            "excluded_elements": self.excluded_elements,
             "target_elements": self.target_elements,
             "excluded_tags": self.excluded_tags,
             "excluded_selector": self.excluded_selector,
@@ -1615,6 +1639,7 @@ class CrawlerRunConfig():
             "image_description_min_word_threshold": self.image_description_min_word_threshold,
             "image_score_threshold": self.image_score_threshold,
             "table_score_threshold": self.table_score_threshold,
+            "table_extraction": self.table_extraction,
             "exclude_all_images": self.exclude_all_images,
             "exclude_external_images": self.exclude_external_images,
             "exclude_social_media_domains": self.exclude_social_media_domains,
