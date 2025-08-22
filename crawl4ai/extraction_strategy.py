@@ -39,6 +39,11 @@ from .model_loader import (
 
 from .types import LLMConfig, create_llm_config
 
+from .markdown_generation_strategy import (
+    DefaultMarkdownGenerator,
+    MarkdownGenerationStrategy,
+)
+
 from functools import partial
 import numpy as np
 import re
@@ -1091,6 +1096,11 @@ class JsonElementExtractionStrategy(ExtractionStrategy):
         """Get child elements using the selector"""
         pass
 
+    @abstractmethod
+    def _get_cleaned_element(self, element, excludedSelector: str):
+        """Get element excluding the selector"""
+        pass
+
     def _extract_field(self, element, field):
         try:
             if field["type"] == "nested":
@@ -1152,6 +1162,8 @@ class JsonElementExtractionStrategy(ExtractionStrategy):
             text = self._get_element_text(selected)
             match = re.search(field["pattern"], text)
             value = match.group(1) if match else None
+        elif field["type"] == "markdown":
+            value = self._get_element_markdown(selected)
 
         if "transform" in field:
             value = self._apply_transform(value, field["transform"], field["pattern"])
@@ -1188,7 +1200,12 @@ class JsonElementExtractionStrategy(ExtractionStrategy):
             if field["type"] == "computed":
                 value = self._compute_field(item, field)
             else:
-                value = self._extract_field(element, field)
+                if "excludedSelector" in field:
+                    value = self._extract_field(
+                        self._get_cleaned_element(element, field["excludedSelector"]), field
+                    )
+                else:
+                    value = self._extract_field(element, field)
             if value is not None:
                 item[field["name"]] = value
         return item
@@ -1268,6 +1285,17 @@ class JsonElementExtractionStrategy(ExtractionStrategy):
     def _get_element_attribute(self, element, attribute: str):
         """Get attribute value from element"""
         pass
+
+    def _get_element_markdown(self, element) -> str:
+        """Get markdown content from element"""
+        markdown_generator: MarkdownGenerationStrategy = DefaultMarkdownGenerator(
+            content_source="raw_html",
+            # options={
+            #     "ignore_links": True,
+            #     "ignore_images": True,
+            # },
+        )
+        return markdown_generator.generate_markdown(self._get_element_html(element)).raw_markdown
 
     _GENERATE_SCHEMA_UNWANTED_PROPS = {
         'provider': 'Instead, use llm_config=LLMConfig(provider="...")',
@@ -1429,6 +1457,18 @@ class JsonCssExtractionStrategy(JsonElementExtractionStrategy):
 
     def _get_element_attribute(self, element, attribute: str):
         return element.get(attribute)
+
+    def _get_cleaned_element(self, element, excludedSelector: str):
+        cloned_element = BeautifulSoup(str(element), "html.parser")
+
+        if excludedSelector and excludedSelector.strip():
+            for node in cloned_element.select(excludedSelector, recursive=True):
+                node.decompose()
+
+        if cloned_element.contents:
+            return cloned_element.contents[0]
+
+        return cloned_element
 
 class JsonLxmlExtractionStrategy(JsonElementExtractionStrategy):
     def __init__(self, schema: Dict[str, Any], **kwargs):
@@ -1662,7 +1702,10 @@ class JsonLxmlExtractionStrategy(JsonElementExtractionStrategy):
         """Get child elements using the selector with context sensitivity"""
         selector_func = self._get_selector(selector)
         return selector_func(element, context_sensitive=True)
-    
+
+    def _get_cleaned_element(self, element, excludedSelector: str):
+        pass
+
     def _get_element_text(self, element) -> str:
         """Extract normalized text from element"""
         try:
@@ -1787,7 +1830,10 @@ class JsonLxmlExtractionStrategy_naive(JsonElementExtractionStrategy):
     def _get_elements(self, element, selector: str):
         selector_func = self._get_selector(selector)
         return selector_func(element)
-    
+
+    def _get_cleaned_element(self, element, excludedSelector: str):
+        pass
+
     def _get_element_text(self, element) -> str:
         return "".join(element.xpath(".//text()")).strip()
     
@@ -1852,6 +1898,9 @@ class JsonXPathExtractionStrategy(JsonElementExtractionStrategy):
         if not xpath.startswith("."):
             xpath = "." + xpath
         return element.xpath(xpath)
+
+    def _get_cleaned_element(self, element, excludedSelector: str):
+        pass
 
     def _get_element_text(self, element) -> str:
         return "".join(element.xpath(".//text()")).strip()
