@@ -4,10 +4,11 @@ import asyncio
 import base64
 import time
 from abc import ABC, abstractmethod
+from typing import override
 from typing import Callable, Dict, Any, List, Union
 from typing import Optional, AsyncGenerator, Final
 import os
-from patchright.async_api import Page, Error
+from patchright.async_api import Page, Error, BrowserContext
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
@@ -41,6 +42,9 @@ class AsyncCrawlerStrategy(ABC):
     @abstractmethod
     async def crawl(self, url: str, **kwargs) -> AsyncCrawlResponse:
         pass  # 4 + 3
+
+    async def get_browser_context(self) -> BrowserContext:
+        return None
 
 class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
     """
@@ -140,6 +144,10 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
         await self.browser_manager.close()
         # Explicitly reset the static Playwright instance
         BrowserManager._playwright_instance = None
+
+    @override
+    async def get_browser_context(self) -> BrowserContext:
+        return self.browser_manager.persistent_browser_context
 
     async def kill_session(self, session_id: str):
         """
@@ -958,6 +966,8 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
             if config.remove_overlay_elements:
                 await self.remove_overlay_elements(page)
 
+            raw_html = await page.content()
+
             if config.css_selector:
                 try:
                     # Handle comma-separated selectors by splitting them
@@ -988,7 +998,7 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
                 except Error as e:
                     raise RuntimeError(f"Failed to extract HTML content: {str(e)}")
             else:
-                html = await page.content()
+                html = raw_html
             
             # # Get final HTML content
             # html = await page.content()
@@ -1040,6 +1050,7 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
             # Return complete response
             return AsyncCrawlResponse(
                 html=html,
+                raw_html=raw_html,
                 response_headers=response_headers,
                 js_execution_result=execution_result,
                 status_code=status_code,

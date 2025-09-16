@@ -339,6 +339,7 @@ class AsyncWebCrawler:
                     )
 
                     html = sanitize_input_encode(async_response.html)
+                    raw_html = sanitize_input_encode(async_response.raw_html)
                     screenshot_data = async_response.screenshot
                     pdf_data = async_response.pdf_data
                     js_execution_result = async_response.js_execution_result
@@ -369,6 +370,7 @@ class AsyncWebCrawler:
                         **kwargs,
                     )
 
+                    crawl_result.raw_html = raw_html
                     crawl_result.status_code = async_response.status_code
                     crawl_result.redirected_url = async_response.redirected_url or url
                     crawl_result.response_headers = async_response.response_headers
