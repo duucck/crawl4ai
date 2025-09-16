@@ -129,6 +129,7 @@ class MarkdownGenerationResult(BaseModel):
 class CrawlResult(BaseModel):
     url: str
     html: str
+    raw_html: Optional[str] = None
     fit_html: Optional[str] = None
     success: bool
     cleaned_html: Optional[str] = None
@@ -322,6 +323,7 @@ RunManyReturn = Union[
 
 class AsyncCrawlResponse(BaseModel):
     html: str
+    raw_html: str
     response_headers: Dict[str, str]
     js_execution_result: Optional[Dict[str, Any]] = None
     status_code: int
