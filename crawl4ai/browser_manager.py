@@ -35,7 +35,6 @@ BROWSER_DISABLE_OPTIONS = [
     "--disable-sync",
     "--force-color-profile=srgb",
     "--metrics-recording-only",
-    "--no-first-run",
     "--password-store=basic",
     "--use-mock-keychain",
 ]
@@ -610,8 +609,8 @@ class BrowserManager:
         self.session_ttl = 1800  # 30 minutes
 
         # Keep track of contexts by a "config signature," so each unique config reuses a single context
-        self.contexts_by_config = {}
-        self._contexts_lock = asyncio.Lock()
+        # self.contexts_by_config = {}
+        # self._contexts_lock = asyncio.Lock()
         
         # Serialize context.new_page() across concurrent tasks to avoid races
         # when using a shared persistent context (context.pages may be empty
@@ -772,7 +771,6 @@ class BrowserManager:
             "--no-first-run",
             "--no-default-browser-check",
             "--disable-infobars",
-            "--window-position=0,0",
             "--ignore-certificate-errors",
             "--ignore-certificate-errors-spki-list",
             "--disable-blink-features=AutomationControlled",
@@ -797,7 +795,6 @@ class BrowserManager:
                     "--disable-images",
                     "--disable-javascript",
                     "--disable-software-rasterizer",
-                    "--disable-dev-shm-usage",
                 ]
             )
 
@@ -807,10 +804,19 @@ class BrowserManager:
         # Deduplicate args
         args = list(dict.fromkeys(args))
 
+        viewport_settings = {
+            "width": self.config.viewport_width,
+            "height": self.config.viewport_height,
+        }
+
         browser_args = {
             "user_data_dir": self.config.user_data_dir,
+            "accept_downloads": self.config.accept_downloads,
             "headless": self.config.headless,
+            "viewport": viewport_settings,
             "args": args,
+            "ignore_https_errors": self.config.ignore_https_errors,
+            "java_script_enabled": self.config.java_script_enabled,
         }
 
         if self.config.chrome_channel:
@@ -822,7 +828,7 @@ class BrowserManager:
         if self.config.timezone_id:
             browser_args["timezone_id"] = self.config.timezone_id
 
-        if self.config.no_viewport:
+        if self.config.no_viewport is not None:
             browser_args["no_viewport"] = self.config.no_viewport
 
         if self.config.accept_downloads:
@@ -845,6 +851,14 @@ class BrowserManager:
                 password=self.config.proxy_config.password,
             )
             browser_args["proxy"] = proxy_settings
+
+        if self.config.text_mode:
+            text_mode_settings = {
+                "has_touch": False,
+                "is_mobile": False,
+            }
+            # Update context settings with text mode settings
+            browser_args.update(text_mode_settings)
 
         return browser_args
 
@@ -1256,6 +1270,7 @@ class BrowserManager:
                                 await self._apply_stealth_to_page(page)
         else:
             # Otherwise, check if we have an existing context for this config
+            """
             config_signature = self._make_config_signature(crawlerRunConfig)
 
             async with self._contexts_lock:
@@ -1267,7 +1282,9 @@ class BrowserManager:
                     context = self.persistent_browser_context
                     await self.setup_context(context, crawlerRunConfig)
                     self.contexts_by_config[config_signature] = context
+            """
 
+            context = self.persistent_browser_context
             # Create a new page from the chosen context
             page = await context.new_page()
             await self._apply_stealth_to_page(page)
@@ -1352,6 +1369,7 @@ class BrowserManager:
             await self.kill_session(session_id)
 
         # Now close all contexts we created. This reclaims memory from ephemeral contexts.
+        """
         for ctx in self.contexts_by_config.values():
             try:
                 await ctx.close()
@@ -1362,6 +1380,7 @@ class BrowserManager:
                     params={"error": str(e)}
                 )
         self.contexts_by_config.clear()
+        """
 
         if self.persistent_browser_context:
             await self.persistent_browser_context.close()
