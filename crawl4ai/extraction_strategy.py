@@ -49,6 +49,7 @@ import numpy as np
 import re
 from bs4 import BeautifulSoup
 from lxml import html, etree
+from copy import deepcopy
 
 
 class ExtractionStrategy(ABC):
@@ -69,6 +70,7 @@ class ExtractionStrategy(ABC):
         self.DEL = "<|DEL|>"
         self.name = self.__class__.__name__
         self.verbose = kwargs.get("verbose", False)
+        self.browser_context = kwargs.get("browser_context")
 
     @abstractmethod
     def extract(self, url: str, html: str, *q, **kwargs) -> List[Dict[str, Any]]:
@@ -1073,7 +1075,10 @@ class JsonElementExtractionStrategy(ExtractionStrategy):
                         item[field["name"]] = value
 
             # Extract child fields
-            field_data = self._extract_item(element, self.schema["fields"])
+            if "mode" in self.schema:
+                field_data = self._extract_item(element, self.schema["fields"], self.schema["mode"])
+            else:
+                field_data = self._extract_item(element, self.schema["fields"])
             item.update(field_data)
 
             if item:
@@ -1163,7 +1168,7 @@ class JsonElementExtractionStrategy(ExtractionStrategy):
             match = re.search(field["pattern"], text)
             value = match.group(1) if match else None
         elif field["type"] == "markdown":
-            value = self._get_element_markdown(selected)
+            value = self._get_element_markdown(selected, field.get("options"))
 
         if "transform" in field:
             value = self._apply_transform(value, field["transform"], field["pattern"])
@@ -1178,7 +1183,7 @@ class JsonElementExtractionStrategy(ExtractionStrategy):
                 item[field["name"]] = value
         return item
 
-    def _extract_item(self, element, fields):
+    def _extract_item(self, element, fields, mode: str | None = None):
         """
         Extracts fields from a given element.
 
@@ -1202,12 +1207,14 @@ class JsonElementExtractionStrategy(ExtractionStrategy):
             else:
                 if "excludedSelector" in field:
                     value = self._extract_field(
-                        self._get_cleaned_element(element, field["excludedSelector"]), field
+                        self._get_cleaned_element(deepcopy(element), field["excludedSelector"]), field
                     )
                 else:
                     value = self._extract_field(element, field)
             if value is not None:
                 item[field["name"]] = value
+                if mode and mode == "exclusive":
+                    break
         return item
 
     def _apply_transform(self, value, transform, pattern):
@@ -1286,14 +1293,11 @@ class JsonElementExtractionStrategy(ExtractionStrategy):
         """Get attribute value from element"""
         pass
 
-    def _get_element_markdown(self, element) -> str:
+    def _get_element_markdown(self, element, options: Optional[Dict[str, Any]] = None) -> str:
         """Get markdown content from element"""
         markdown_generator: MarkdownGenerationStrategy = DefaultMarkdownGenerator(
             content_source="raw_html",
-            # options={
-            #     "ignore_links": True,
-            #     "ignore_images": True,
-            # },
+            options=options,
         )
         return markdown_generator.generate_markdown(self._get_element_html(element)).raw_markdown
 
@@ -1459,16 +1463,11 @@ class JsonCssExtractionStrategy(JsonElementExtractionStrategy):
         return element.get(attribute)
 
     def _get_cleaned_element(self, element, excludedSelector: str):
-        cloned_element = BeautifulSoup(str(element), "html.parser")
-
         if excludedSelector and excludedSelector.strip():
-            for node in cloned_element.select(excludedSelector, recursive=True):
+            for node in element.select(excludedSelector, recursive=True):
                 node.decompose()
 
-        if cloned_element.contents:
-            return cloned_element.contents[0]
-
-        return cloned_element
+        return element
 
 class JsonLxmlExtractionStrategy(JsonElementExtractionStrategy):
     def __init__(self, schema: Dict[str, Any], **kwargs):
@@ -1895,12 +1894,19 @@ class JsonXPathExtractionStrategy(JsonElementExtractionStrategy):
 
     def _get_elements(self, element, selector: str):
         xpath = self._css_to_xpath(selector)
-        if not xpath.startswith("."):
+        if xpath.startswith('/') or xpath.startswith('('):
+            pass
+        elif not xpath.startswith("."):
             xpath = "." + xpath
         return element.xpath(xpath)
 
     def _get_cleaned_element(self, element, excludedSelector: str):
-        pass
+        if excludedSelector and excludedSelector.strip():
+            for node in element.xpath(excludedSelector):
+                if node.getparent() is not None:
+                    node.getparent().remove(node)
+
+        return element
 
     def _get_element_text(self, element) -> str:
         return "".join(element.xpath(".//text()")).strip()

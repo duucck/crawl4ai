@@ -320,7 +320,7 @@ RunManyReturn = Union[
 
 class AsyncCrawlResponse(BaseModel):
     html: str
-    raw_html: str
+    raw_html: Optional[str] = None
     response_headers: Dict[str, str]
     js_execution_result: Optional[Dict[str, Any]] = None
     status_code: int

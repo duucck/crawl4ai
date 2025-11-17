@@ -1,5 +1,5 @@
 import os
-from typing import Union
+from typing import Union, Literal
 import warnings
 import requests
 from .config import (
@@ -752,6 +752,8 @@ class VirtualScrollConfig:
     def __init__(
         self,
         container_selector: str,
+        item_selector: str | None = None,
+        scroll_page: bool = False,
         scroll_count: int = 10,
         scroll_by: Union[str, int] = "container_height",
         wait_after_scroll: float = 0.5,
@@ -769,6 +771,8 @@ class VirtualScrollConfig:
             wait_after_scroll: Seconds to wait after each scroll for content to load
         """
         self.container_selector = container_selector
+        self.item_selector = item_selector
+        self.scroll_page = scroll_page
         self.scroll_count = scroll_count
         self.scroll_by = scroll_by
         self.wait_after_scroll = wait_after_scroll
@@ -777,6 +781,8 @@ class VirtualScrollConfig:
         """Convert to dictionary for serialization."""
         return {
             "container_selector": self.container_selector,
+            "item_selector": self.item_selector,
+            "scroll_page": self.scroll_page,
             "scroll_count": self.scroll_count,
             "scroll_by": self.scroll_by,
             "wait_after_scroll": self.wait_after_scroll,
@@ -1174,7 +1180,9 @@ class CrawlerRunConfig():
         chunking_strategy: ChunkingStrategy = RegexChunking(),
         markdown_generator: MarkdownGenerationStrategy = DefaultMarkdownGenerator(),
         only_text: bool = False,
-        css_selector: str = None,
+        hooks: dict[str, Callable] = None,
+        execute_hooks: bool = False,
+        selectors: List[str] = None,
         excluded_elements: List[str] = None,
         target_elements: List[str] = None,
         excluded_tags: list = None,
@@ -1183,6 +1191,10 @@ class CrawlerRunConfig():
         keep_attrs: list = None,
         remove_forms: bool = False,
         prettiify: bool = False,
+        render_html: bool = False,
+        render_wait_for: str | None = None,
+        render_wait_for_state: str | None = None,
+        render_timeout: int | None = None,
         parser_type: str = "lxml",
         scraping_strategy: ContentScrapingStrategy = None,
         proxy_config: Union[ProxyConfig, dict, None] = None,
@@ -1205,6 +1217,7 @@ class CrawlerRunConfig():
         wait_until: str = "domcontentloaded",
         page_timeout: int = PAGE_TIMEOUT,
         wait_for: str = None,
+        wait_for_state: Literal["attached", "detached", "hidden", "visible"] | None = None,
         wait_for_timeout: int = None,
         wait_for_images: bool = False,
         delay_before_return_html: float = 0.1,
@@ -1218,6 +1231,7 @@ class CrawlerRunConfig():
         ignore_body_visibility: bool = True,
         scan_full_page: bool = False,
         scroll_delay: float = 0.2,
+        after_scroll_hook: Callable | None = None,
         max_scroll_steps: Optional[int] = None,
         max_scroll_retry_times: Optional[int] = None,
         max_effective_scroll_times: Optional[int] = None,
@@ -1282,7 +1296,9 @@ class CrawlerRunConfig():
         self.chunking_strategy = chunking_strategy
         self.markdown_generator = markdown_generator
         self.only_text = only_text
-        self.css_selector = css_selector
+        self.hooks = hooks
+        self.execute_hooks = execute_hooks
+        self.selectors = selectors
         self.excluded_elements = excluded_elements or []
         self.target_elements = target_elements or []
         self.excluded_tags = excluded_tags or []
@@ -1291,6 +1307,10 @@ class CrawlerRunConfig():
         self.keep_attrs = keep_attrs or []
         self.remove_forms = remove_forms
         self.prettiify = prettiify
+        self.render_html = render_html
+        self.render_wait_for = render_wait_for
+        self.render_wait_for_state = render_wait_for_state
+        self.render_timeout = render_timeout
         self.parser_type = parser_type
         self.scraping_strategy = scraping_strategy or LXMLWebScrapingStrategy()
         self.proxy_config = proxy_config
@@ -1322,6 +1342,7 @@ class CrawlerRunConfig():
         self.wait_until = wait_until
         self.page_timeout = page_timeout
         self.wait_for = wait_for
+        self.wait_for_state = wait_for_state
         self.wait_for_timeout = wait_for_timeout
         self.wait_for_images = wait_for_images
         self.delay_before_return_html = delay_before_return_html
@@ -1336,6 +1357,7 @@ class CrawlerRunConfig():
         self.ignore_body_visibility = ignore_body_visibility
         self.scan_full_page = scan_full_page
         self.scroll_delay = scroll_delay
+        self.after_scroll_hook = after_scroll_hook
         self.max_scroll_steps = max_scroll_steps
         self.max_scroll_retry_times = max_scroll_retry_times
         self.max_effective_scroll_times = max_effective_scroll_times
@@ -1570,7 +1592,9 @@ class CrawlerRunConfig():
             chunking_strategy=kwargs.get("chunking_strategy", RegexChunking()),
             markdown_generator=kwargs.get("markdown_generator"),
             only_text=kwargs.get("only_text", False),
-            css_selector=kwargs.get("css_selector"),
+            hooks=kwargs.get("hooks"),
+            execute_hooks=kwargs.get("execute_hooks", False),
+            selectors=kwargs.get("selectors"),
             excluded_elements=kwargs.get("excluded_elements", []),
             target_elements=kwargs.get("target_elements", []),
             excluded_tags=kwargs.get("excluded_tags", []),
@@ -1579,6 +1603,10 @@ class CrawlerRunConfig():
             keep_attrs=kwargs.get("keep_attrs", []),
             remove_forms=kwargs.get("remove_forms", False),
             prettiify=kwargs.get("prettiify", False),
+            render_html=kwargs.get("render_html", False),
+            render_wait_for=kwargs.get("render_wait_for"),
+            render_wait_for_state=kwargs.get("render_wait_for_state"),
+            render_timeout=kwargs.get("render_timeout"),
             parser_type=kwargs.get("parser_type", "lxml"),
             scraping_strategy=kwargs.get("scraping_strategy"),
             proxy_config=kwargs.get("proxy_config"),
@@ -1601,6 +1629,7 @@ class CrawlerRunConfig():
             wait_until=kwargs.get("wait_until", "domcontentloaded"),
             page_timeout=kwargs.get("page_timeout", 60000),
             wait_for=kwargs.get("wait_for"),
+            wait_for_state=kwargs.get("wait_for_state"),
             wait_for_timeout=kwargs.get("wait_for_timeout"),
             wait_for_images=kwargs.get("wait_for_images", False),
             delay_before_return_html=kwargs.get("delay_before_return_html", 0.1),
@@ -1613,6 +1642,7 @@ class CrawlerRunConfig():
             ignore_body_visibility=kwargs.get("ignore_body_visibility", True),
             scan_full_page=kwargs.get("scan_full_page", False),
             scroll_delay=kwargs.get("scroll_delay", 0.2),
+            after_scroll_hook=kwargs.get("after_scroll_hook"),
             max_scroll_steps=kwargs.get("max_scroll_steps"),
             max_scroll_retry_times=kwargs.get("max_scroll_retry_times"),
             max_effective_scroll_times=kwargs.get("max_effective_scroll_times"),
@@ -1696,7 +1726,9 @@ class CrawlerRunConfig():
             "chunking_strategy": self.chunking_strategy,
             "markdown_generator": self.markdown_generator,
             "only_text": self.only_text,
-            "css_selector": self.css_selector,
+            "hooks": self.hooks,
+            "execute_hooks": self.execute_hooks,
+            "selectors": self.selectors,
             "excluded_elements": self.excluded_elements,
             "target_elements": self.target_elements,
             "excluded_tags": self.excluded_tags,
@@ -1705,6 +1737,10 @@ class CrawlerRunConfig():
             "keep_attrs": self.keep_attrs,
             "remove_forms": self.remove_forms,
             "prettiify": self.prettiify,
+            "render_html": self.render_html,
+            "render_wait_for": self.render_wait_for,
+            "render_wait_for_state": self.render_wait_for_state,
+            "render_timeout": self.render_timeout,
             "parser_type": self.parser_type,
             "scraping_strategy": self.scraping_strategy,
             "proxy_config": self.proxy_config,
@@ -1723,6 +1759,7 @@ class CrawlerRunConfig():
             "wait_until": self.wait_until,
             "page_timeout": self.page_timeout,
             "wait_for": self.wait_for,
+            "wait_for_state": self.wait_for_state,
             "wait_for_timeout": self.wait_for_timeout,
             "wait_for_images": self.wait_for_images,
             "delay_before_return_html": self.delay_before_return_html,
@@ -1734,6 +1771,7 @@ class CrawlerRunConfig():
             "ignore_body_visibility": self.ignore_body_visibility,
             "scan_full_page": self.scan_full_page,
             "scroll_delay": self.scroll_delay,
+            "after_scroll_hook": self.after_scroll_hook,
             "max_scroll_steps": self.max_scroll_steps,
             "max_scroll_retry_times": self.max_scroll_retry_times,
             "max_effective_scroll_times": self.max_effective_scroll_times,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import time
+from pathlib import Path
 from abc import ABC, abstractmethod
 from typing import override
 from typing import Callable, Dict, Any, List, Union
@@ -16,7 +17,7 @@ import hashlib
 import uuid
 from .js_snippet import load_js_script
 from .models import AsyncCrawlResponse
-from .config import SCREENSHOT_HEIGHT_TRESHOLD
+from .config import SCREENSHOT_HEIGHT_TRESHOLD, PAGE_TIMEOUT
 from .async_configs import BrowserConfig, CrawlerRunConfig, HTTPCrawlerConfig
 from .async_logger import AsyncLogger
 from .ssl_certificate import SSLCertificate
@@ -91,8 +92,14 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
         """
         # Initialize browser config, either from provided object or kwargs
         self.browser_config = browser_config or BrowserConfig.from_kwargs(kwargs)
-        self.logger = logger
-        
+
+        base_directory: str = str(os.getenv("CRAWL4_AI_BASE_DIRECTORY", Path.home()))
+        self.logger = logger or AsyncLogger(
+            log_file=os.path.join(base_directory, ".crawl4ai", "crawler.log"),
+            verbose=self.browser_config.verbose,
+            tag_width=10,
+        )
+
         # Initialize browser adapter
         self.adapter = browser_adapter or PlaywrightAdapter()
 
@@ -204,12 +211,24 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
         Returns:
             The return value of the hook function, if any.
         """
+        config = kwargs.get("config")
+        if config and not config.execute_hooks:
+            return None
+
         hook = self.hooks.get(hook_type)
         if hook:
             if asyncio.iscoroutinefunction(hook):
-                return await hook(*args, **kwargs)
+                await hook(*args, **kwargs)
             else:
-                return hook(*args, **kwargs)
+                hook(*args, **kwargs)
+
+        if config and config.hooks:
+            hook = config.hooks.get(hook_type)
+            if hook:
+                if asyncio.iscoroutinefunction(hook):
+                    await hook(*args, **kwargs)
+                else:
+                    hook(*args, **kwargs)
         return args[0] if args else None
 
     def update_user_agent(self, user_agent: str):
@@ -236,7 +255,7 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
         """
         self.headers = headers
 
-    async def smart_wait(self, page: Page, wait_for: str, timeout: float = 30000):
+    async def smart_wait(self, page: Page, wait_for: str, wait_for_state: str | None = None, timeout: float = 30000):
         """
         Wait for a condition in a smart way. This functions works as below:
 
@@ -264,7 +283,7 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
             # Explicitly specified CSS selector
             css_selector = wait_for[4:].strip()
             try:
-                await page.wait_for_selector(css_selector, timeout=timeout)
+                await page.wait_for_selector(css_selector, state=wait_for_state, timeout=timeout)
             except Error as e:
                 if "Timeout" in str(e):
                     raise TimeoutError(
@@ -280,7 +299,7 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
             else:
                 # Assume it's a CSS selector first
                 try:
-                    await page.wait_for_selector(wait_for, timeout=timeout)
+                    await page.wait_for_selector(wait_for, state=wait_for_state, timeout=timeout)
                 except Error as e:
                     if "Timeout" in str(e):
                         raise TimeoutError(
@@ -495,6 +514,20 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
             # raw_html = url[4:] if url[:4] == "raw:" else url[7:]
             raw_html = url[6:] if url.startswith("raw://") else url[4:]
             html = raw_html
+
+            if config.render_html:
+                page, _ = await self.browser_manager.get_page(crawlerRunConfig=config)
+                await page.set_content(html)
+
+                if config.render_wait_for:
+                    rendered = page.locator(config.render_wait_for)
+                    await rendered.wait_for(state=config.render_wait_for_state, timeout=(config.render_timeout or PAGE_TIMEOUT))
+
+                if config.process_iframes:
+                    page = await self.process_iframes(page)
+
+                html = await page.content()
+                await page.close()
             if config.screenshot:
                 screenshot_data = await self._generate_screenshot_from_html(html)
             return AsyncCrawlResponse(
@@ -908,16 +941,16 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
 
             # Handle wait_for condition
             # Todo: Decide how to handle this
-            if not config.wait_for and config.css_selector and False:
-            # if not config.wait_for and config.css_selector:
-                config.wait_for = f"css:{config.css_selector}"
+            # if not config.wait_for and config.selectors and False:
+            # if not config.wait_for and config.selectors:
+                # config.wait_for = f"css:{config.selectors}"
 
             if config.wait_for:
                 try:
                     # Use wait_for_timeout if specified, otherwise fall back to page_timeout
                     timeout = config.wait_for_timeout if config.wait_for_timeout is not None else config.page_timeout
                     await self.smart_wait(
-                        page, config.wait_for, timeout=timeout
+                        page, config.wait_for, config.wait_for_state, timeout=timeout
                     )
                 except Exception as e:
                     raise RuntimeError(f"Wait condition failed: {str(e)}")
@@ -930,7 +963,8 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
                     config.scroll_delay,
                     config.max_scroll_steps,
                     config.max_scroll_retry_times,
-                    config.max_effective_scroll_times
+                    config.max_effective_scroll_times,
+                    config.after_scroll_hook,
                 )
 
             # Handle virtual scroll if configured
@@ -968,26 +1002,64 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
 
             raw_html = await page.content()
 
-            if config.css_selector:
+            if config.selectors:
                 try:
-                    # Handle comma-separated selectors by splitting them
-                    selectors = [s.strip() for s in config.css_selector.split(',')]
-                    excluded_selectors = ", ".join(getattr(config, 'excluded_elements', []))
+                    excluded_selectors = getattr(config, 'excluded_elements', [])
                     html_parts = []
-                    
-                    for selector in selectors:
+
+                    js_logic = """
+                    ([mainSelector, excludedSelectors]) => {
+                        // 辅助函数，用于判断选择器是否为 XPath
+                        const isXpath = selector => selector.trim().startsWith('/') || selector.trim().startsWith('./');
+
+                        // 1. 根据主选择器获取初始元素
+                        let elements;
+                        if (isXpath(mainSelector)) {
+                            const result = document.evaluate(mainSelector, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+                            // 将快照转换为标准数组
+                            elements = Array.from({ length: result.snapshotLength }, (_, i) => result.snapshotItem(i));
+                        } else {
+                            elements = Array.from(document.querySelectorAll(mainSelector));
+                        }
+
+                        // 如果没有要排除的元素，直接返回结果
+                        if (!excludedSelectors || excludedSelectors.length === 0) {
+                            return elements.map(el => el.outerHTML).join('');
+                        }
+
+                        // 2. 遍历每个找到的元素，并处理排除项
+                        return elements.map(el => {
+                            const clone = el.cloneNode(true);
+
+                            // 遍历排除列表中的每一个选择器
+                            excludedSelectors.forEach(exSel => {
+                                if (isXpath(exSel)) {
+                                    // 如果是 XPath，则在克隆元素的上下文中执行 evaluate
+                                    const nodesToRemove = document.evaluate(exSel, clone, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+                                    for (let i = 0; i < nodesToRemove.snapshotLength; i++) {
+                                        const node = nodesToRemove.snapshotItem(i);
+                                        // 确保节点存在且有父节点再移除
+                                        if (node && node.parentNode) {
+                                            node.remove();
+                                        }
+                                    }
+                                } else {
+                                    // 如果是 CSS 选择器，则在克隆元素上使用 querySelectorAll
+                                    clone.querySelectorAll(exSel).forEach(nodeToRemove => nodeToRemove.remove());
+                                }
+                            });
+
+                            return clone.outerHTML;
+                        }).join('');
+                    }
+                    """
+
+                    for selector in config.selectors:
                         try:
-                            content = await self.adapter.evaluate(page,
-                                f"""Array.from(document.querySelectorAll("{selector}"))
-                                    .map(el => {{
-                                        if ("{excluded_selectors}".length > 0) {{
-                                            const clone = el.cloneNode(true);
-                                            clone.querySelectorAll("{excluded_selectors}").forEach(nodeToRemove => nodeToRemove.remove());
-                                            return clone.outerHTML;
-                                        }}
-                                        return el.outerHTML;
-                                    }})
-                                    .join('')"""
+                            content = await self.adapter.evaluate(
+                                page,
+                                js_logic,
+                                [selector, excluded_selectors]
                             )
                             html_parts.append(content)
                         except Error as e:
@@ -1105,7 +1177,8 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
             scroll_delay: float = 0.1,
             max_scroll_steps: Optional[int] = None,
             max_scroll_retry_times: Optional[int] = None,
-            max_effective_scroll_times: Optional[int] = None
+            max_effective_scroll_times: Optional[int] = None,
+            hook: Callable | None = None,
         ):
         """
         Helper method to handle full page scanning.
@@ -1142,6 +1215,8 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
 
             # await page.evaluate(f"window.scrollTo(0, {current_position})")
             await self.safe_scroll(page, 0, current_position, delay=scroll_delay)
+            if hook and asyncio.iscoroutinefunction(hook):
+                await hook(page)
             # await self.csp_scroll_to(page, 0, current_position)
             # await asyncio.sleep(scroll_delay)
 
@@ -1175,7 +1250,10 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
                     current_position = min(current_position + viewport_height, total_height)
                 else:
                     scroll_end_retry_count += 1
+
                 await self.safe_scroll(page, 0, current_position, delay=scroll_delay)
+                if hook and asyncio.iscoroutinefunction(hook):
+                    await hook(page)
 
                 # Increment the step counter for max_scroll_steps tracking
                 scroll_step_count += 1
@@ -1262,8 +1340,13 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
                 
                 // Perform scrolling
                 while (scrollCount < config.scroll_count) {
-                    // Scroll the container
-                    container.scrollTop += scrollAmount;
+                    if (config.scroll_page) {
+                        // Scroll the page
+                        window.scrollBy(0, scrollAmount);
+                    } else {
+                        // Scroll the container
+                        container.scrollTop += scrollAmount;
+                    }
                     
                     // Wait for content to potentially load
                     await new Promise(resolve => setTimeout(resolve, config.wait_after_scroll * 1000));
@@ -1289,7 +1372,11 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
                     scrollCount++;
                     
                     // Check if we've reached the end
-                    if (container.scrollTop + container.clientHeight >= container.scrollHeight - 10) {
+                    reach_end = config.scroll_page
+                        ? window.innerHeight + window.scrollY >= document.body.scrollHeight - 10
+                        : container.scrollTop + container.clientHeight >= container.scrollHeight - 10;
+
+                    if (reach_end) {
                         console.log(`Reached end of scrollable content at scroll ${scrollCount}`);
                         // Capture final chunk if content was replaced
                         if (htmlChunks.length > 0) {
@@ -1306,23 +1393,37 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
                     // Parse all chunks to extract unique elements
                     const tempDiv = document.createElement('div');
                     const seenTexts = new Set();
+                    const seenElementsHTML = new Set();
                     const uniqueElements = [];
                     
                     // Process each chunk
                     for (const chunk of htmlChunks) {
                         tempDiv.innerHTML = chunk;
-                        const elements = tempDiv.children;
-                        
-                        for (let i = 0; i < elements.length; i++) {
-                            const element = elements[i];
-                            // Normalize text for deduplication
-                            const normalizedText = element.innerText
-                                .toLowerCase()
-                                .replace(/[\\s\\W]/g, ''); // Remove spaces and symbols
-                            
-                            if (!seenTexts.has(normalizedText)) {
-                                seenTexts.add(normalizedText);
-                                uniqueElements.push(element.outerHTML);
+
+                        if (config.item_selector) {
+                            const items = tempDiv.querySelectorAll(config.item_selector);
+                            for (const item of items) {
+                                const itemHTML = item.outerHTML;
+                                // Use the element's full HTML as the unique key
+                                if (!seenElementsHTML.has(itemHTML)) {
+                                    seenElementsHTML.add(itemHTML);
+                                    uniqueElements.push(itemHTML);
+                                }
+                            }
+                        } else {
+                            const elements = tempDiv.children;
+
+                            for (let i = 0; i < elements.length; i++) {
+                                const element = elements[i];
+                                // Normalize text for deduplication
+                                const normalizedText = element.innerText
+                                    .toLowerCase()
+                                    .replace(/[\\s\\W]/g, ''); // Remove spaces and symbols
+
+                                if (!seenTexts.has(normalizedText)) {
+                                    seenTexts.add(normalizedText);
+                                    uniqueElements.push(element.outerHTML);
+                                }
                             }
                         }
                     }
