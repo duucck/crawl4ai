@@ -1276,7 +1276,9 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
 
                 await self.safe_scroll(page, 0, current_position, delay=scroll_delay)
                 if hook and asyncio.iscoroutinefunction(hook):
-                    await hook(page)
+                    continuous = await hook(page)
+                    if not continuous:
+                        break
 
                 # Increment the step counter for max_scroll_steps tracking
                 scroll_step_count += 1
