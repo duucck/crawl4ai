@@ -474,7 +474,6 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
         config = config or CrawlerRunConfig.from_kwargs(kwargs)
         response_headers = {}
         status_code = 200  # Default for local/raw HTML
-        screenshot_data = None
 
         if url.startswith(("http://", "https://", "view-source:")):
             return await self._crawl_web(url, config)
@@ -513,21 +512,6 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
             else:
                 # Process raw HTML content (raw:// or raw:)
                 html = url[6:] if url.startswith("raw://") else url[4:]
-
-                if config.render_html:
-                    page, _ = await self.browser_manager.get_page(crawlerRunConfig=config)
-                    await page.set_content(html)
-
-                    if config.render_wait_for:
-                        rendered = page.locator(config.render_wait_for)
-                        await rendered.wait_for(state=config.render_wait_for_state,
-                                                timeout=(config.render_timeout or PAGE_TIMEOUT))
-
-                    if config.process_iframes:
-                        page = await self.process_iframes(page)
-
-                    html = await page.content()
-                    await page.close()
 
             return AsyncCrawlResponse(
                 html=html,

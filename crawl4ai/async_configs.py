@@ -1258,10 +1258,6 @@ class CrawlerRunConfig():
         keep_attrs: list = None,
         remove_forms: bool = False,
         prettiify: bool = False,
-        render_html: bool = False,
-        render_wait_for: str | None = None,
-        render_wait_for_state: str | None = None,
-        render_timeout: int | None = None,
         parser_type: str = "lxml",
         scraping_strategy: ContentScrapingStrategy = None,
         proxy_config: Union[ProxyConfig, dict, None] = None,
@@ -1385,10 +1381,6 @@ class CrawlerRunConfig():
         self.keep_attrs = keep_attrs or []
         self.remove_forms = remove_forms
         self.prettiify = prettiify
-        self.render_html = render_html
-        self.render_wait_for = render_wait_for
-        self.render_wait_for_state = render_wait_for_state
-        self.render_timeout = render_timeout
         self.parser_type = parser_type
         self.scraping_strategy = scraping_strategy or LXMLWebScrapingStrategy()
         self.proxy_config = proxy_config
@@ -1691,10 +1683,6 @@ class CrawlerRunConfig():
             keep_attrs=kwargs.get("keep_attrs", []),
             remove_forms=kwargs.get("remove_forms", False),
             prettiify=kwargs.get("prettiify", False),
-            render_html=kwargs.get("render_html", False),
-            render_wait_for=kwargs.get("render_wait_for"),
-            render_wait_for_state=kwargs.get("render_wait_for_state"),
-            render_timeout=kwargs.get("render_timeout"),
             parser_type=kwargs.get("parser_type", "lxml"),
             scraping_strategy=kwargs.get("scraping_strategy"),
             proxy_config=kwargs.get("proxy_config"),
@@ -1832,10 +1820,6 @@ class CrawlerRunConfig():
             "keep_attrs": self.keep_attrs,
             "remove_forms": self.remove_forms,
             "prettiify": self.prettiify,
-            "render_html": self.render_html,
-            "render_wait_for": self.render_wait_for,
-            "render_wait_for_state": self.render_wait_for_state,
-            "render_timeout": self.render_timeout,
             "parser_type": self.parser_type,
             "scraping_strategy": self.scraping_strategy,
             "proxy_config": self.proxy_config,
