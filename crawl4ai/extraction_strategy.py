@@ -1472,7 +1472,7 @@ class JsonCssExtractionStrategy(JsonElementExtractionStrategy):
         return element.select(selector)
 
     def _get_element_text(self, element) -> str:
-        return element.get_text(strip=True)
+        return element.get_text(separator=" ", strip=True)
 
     def _get_element_html(self, element) -> str:
         return str(element)
