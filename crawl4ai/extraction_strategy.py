@@ -39,6 +39,11 @@ from .model_loader import (
 
 from .types import LLMConfig, create_llm_config
 
+from .markdown_generation_strategy import (
+    DefaultMarkdownGenerator,
+    MarkdownGenerationStrategy,
+)
+
 from functools import partial
 import numpy as np
 import re
@@ -1158,6 +1163,8 @@ class JsonElementExtractionStrategy(ExtractionStrategy):
             text = self._get_element_text(selected)
             match = re.search(field["pattern"], text)
             value = match.group(1) if match else None
+        elif field["type"] == "markdown":
+            value = self._get_element_markdown(selected, field.get("options"))
 
         if "transform" in field:
             value = self._apply_transform(value, field["transform"])
@@ -1270,6 +1277,14 @@ class JsonElementExtractionStrategy(ExtractionStrategy):
     def _get_element_attribute(self, element, attribute: str):
         """Get attribute value from element"""
         pass
+
+    def _get_element_markdown(self, element, options: Optional[Dict[str, Any]] = None) -> str:
+        """Get markdown content from element"""
+        markdown_generator: MarkdownGenerationStrategy = DefaultMarkdownGenerator(
+            content_source="raw_html",
+            options=options,
+        )
+        return markdown_generator.generate_markdown(self._get_element_html(element)).raw_markdown
 
     _GENERATE_SCHEMA_UNWANTED_PROPS = {
         'provider': 'Instead, use llm_config=LLMConfig(provider="...")',
