@@ -909,5 +909,130 @@ class LXMLWebScrapingStrategy(ContentScrapingStrategy):
             }
 
 
+    def filter_html(
+        self,
+        html: str,
+        word_count_threshold: int = MIN_WORD_THRESHOLD,
+        css_selector: str = None,
+        target_elements: List[str] = None,
+        **kwargs,
+    ) -> str | None:
+        if not html:
+            return None
+
+        try:
+            doc = lhtml.document_fromstring(html)
+            # Match BeautifulSoup's behavior of using body or full doc
+            # body = doc.xpath('//body')[0] if doc.xpath('//body') else doc
+            body = doc
+
+            # Early removal of all images if exclude_all_images is set
+            # This is more efficient in lxml as we remove elements before any processing
+            if kwargs.get("exclude_all_images", False):
+                for img in body.xpath('//img'):
+                    if img.getparent() is not None:
+                        img.getparent().remove(img)
+
+            # Add comment removal
+            if kwargs.get("remove_comments", False):
+                comments = body.xpath("//comment()")
+                for comment in comments:
+                    comment.getparent().remove(comment)
+
+            # Handle tag-based removal first
+            excluded_tags = set(kwargs.get("excluded_tags", []) or [])
+            if excluded_tags:
+                for tag in excluded_tags:
+                    for element in body.xpath(f".//{tag}"):
+                        if element.getparent() is not None:
+                            element.getparent().remove(element)
+
+            # Handle CSS selector-based exclusion
+            excluded_selector = kwargs.get("excluded_selector", "")
+            if excluded_selector:
+                try:
+                    for element in body.cssselect(excluded_selector):
+                        if element.getparent() is not None:
+                            element.getparent().remove(element)
+                except Exception as e:
+                    self._log(
+                        "error", f"Error with excluded CSS selector: {str(e)}", "SCRAPE"
+                    )
+
+            if target_elements:
+                try:
+                    for_content_targeted_element = []
+                    for target_element in target_elements:
+                        for_content_targeted_element.extend(body.cssselect(target_element))
+                    content_element = lhtml.Element("div")
+                    content_element.extend(copy.deepcopy(for_content_targeted_element))
+                except Exception as e:
+                    self._log("error", f"Error with target element detection: {str(e)}", "SCRAPE")
+                    return None
+            else:
+                content_element = body
+
+            # Process forms if needed
+            if kwargs.get("remove_forms", False):
+                for form in body.xpath(".//form"):
+                    if form.getparent() is not None:
+                        form.getparent().remove(form)
+
+            # Handle only_text option
+            if kwargs.get("only_text", False):
+                for tag in ONLY_TEXT_ELIGIBLE_TAGS:
+                    for element in body.xpath(f".//{tag}"):
+                        if element.text:
+                            new_text = lhtml.Element("span")
+                            new_text.text = element.text_content()
+                            if element.getparent() is not None:
+                                element.getparent().replace(element, new_text)
+
+            # Clean base64 images
+            for img in body.xpath(".//img[@src]"):
+                src = img.get("src", "")
+                if self.BASE64_PATTERN.match(src):
+                    img.set("src", self.BASE64_PATTERN.sub("", src))
+
+            # Generate output HTML
+            filtered_html = lhtml.tostring(
+                # body,
+                content_element,
+                encoding="unicode",
+                pretty_print=True,
+                method="html",
+                with_tail=False,
+            ).strip()
+
+            return filtered_html
+
+        except Exception as e:
+            self._log("error", f"Error processing HTML: {str(e)}", "SCRAPE")
+            # Create error message in case of failure
+            error_body = lhtml.Element("div")
+            # Use etree.SubElement rather than lhtml.SubElement
+            error_div = etree.SubElement(error_body, "div", id="crawl4ai_error_message")
+            error_div.text = f"""
+            Crawl4AI Error: This page is not fully supported.
+
+            Error Message: {str(e)}
+
+            Possible reasons:
+            1. The page may have restrictions that prevent crawling.
+            2. The page might not be fully loaded.
+
+            Suggestions:
+            - Try calling the crawl function with these parameters:
+            magic=True,
+            - Set headless=False to visualize what's happening on the page.
+
+            If the issue persists, please check the page's structure and any potential anti-crawling measures.
+            """
+            filtered_html = lhtml.tostring(
+                error_body, encoding="unicode", pretty_print=True
+            )
+            return filtered_html
+
+
 # Backward compatibility alias
 WebScrapingStrategy = LXMLWebScrapingStrategy

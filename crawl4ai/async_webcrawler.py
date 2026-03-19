@@ -575,6 +575,8 @@ class AsyncWebCrawler:
             result: ScrapingResult = scraping_strategy.scrap(
                 url, html, **params)
 
+            html = scraping_strategy.filter_html(html, **params)
+
             if result is None:
                 raise ValueError(
                     f"Process HTML, Failed to extract content from the website: {url}"
