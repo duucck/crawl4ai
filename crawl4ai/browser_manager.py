@@ -760,7 +760,7 @@ class BrowserManager:
         self.logger.debug(f"CDP verification failed after 5 attempts", tag="BROWSER")
         return False
 
-    def _build_browser_args(self) -> dict:
+    def _build_browser_args(self, crawlerRunConfig: CrawlerRunConfig | None = None) -> dict:
         """Build browser launch arguments from config."""
         args = [
             "--disable-gpu",
@@ -809,6 +809,8 @@ class BrowserManager:
             "height": self.config.viewport_height,
         }
 
+        user_agent = self.config.headers.get("User-Agent", self.config.user_agent)
+
         browser_args = {
             "user_data_dir": self.config.user_data_dir,
             "accept_downloads": self.config.accept_downloads,
@@ -817,6 +819,8 @@ class BrowserManager:
             "args": args,
             "ignore_https_errors": self.config.ignore_https_errors,
             "java_script_enabled": self.config.java_script_enabled,
+            "user_agent": user_agent,
+            "device_scale_factor": 1.0,
         }
 
         if self.config.chrome_channel:
@@ -859,6 +863,35 @@ class BrowserManager:
             }
             # Update context settings with text mode settings
             browser_args.update(text_mode_settings)
+
+        if crawlerRunConfig:
+            # Check if there is value for crawlerRunConfig.proxy_config set add that to context
+            if crawlerRunConfig.proxy_config:
+                proxy_settings = {
+                    "server": crawlerRunConfig.proxy_config.server,
+                }
+                if crawlerRunConfig.proxy_config.username:
+                    proxy_settings.update({
+                        "username": crawlerRunConfig.proxy_config.username,
+                        "password": crawlerRunConfig.proxy_config.password,
+                    })
+                browser_args["proxy"] = proxy_settings
+
+            # inject locale / tz / geo if user provided them
+            if crawlerRunConfig.locale:
+                browser_args["locale"] = crawlerRunConfig.locale
+            if crawlerRunConfig.timezone_id:
+                browser_args["timezone_id"] = crawlerRunConfig.timezone_id
+            if crawlerRunConfig.geolocation:
+                browser_args["geolocation"] = {
+                    "latitude": crawlerRunConfig.geolocation.latitude,
+                    "longitude": crawlerRunConfig.geolocation.longitude,
+                    "accuracy": crawlerRunConfig.geolocation.accuracy,
+                }
+                # ensure geolocation permission
+                perms = browser_args.get("permissions", [])
+                perms.append("geolocation")
+                browser_args["permissions"] = perms
 
         return browser_args
 
@@ -958,6 +991,135 @@ class BrowserManager:
         if self.config.init_scripts:
             for script in self.config.init_scripts:
                 await context.add_init_script(script)
+
+    async def setup_persistent_context(
+        self,
+        context: BrowserContext,
+        crawlerRunConfig: CrawlerRunConfig | None = None,
+    ):
+        if self.config.headers:
+            await context.set_extra_http_headers(self.config.headers)
+
+        if self.config.cookies:
+            await context.add_cookies(self.config.cookies)
+
+        if self.config.storage_state:
+            await context.storage_state(path=None)
+
+        if self.config.accept_downloads:
+            context.set_default_timeout(DOWNLOAD_PAGE_TIMEOUT)
+            context.set_default_navigation_timeout(DOWNLOAD_PAGE_TIMEOUT)
+            if self.config.downloads_path:
+                context._impl_obj._options["accept_downloads"] = True
+                context._impl_obj._options[
+                    "downloads_path"
+                ] = self.config.downloads_path
+
+        # Handle user agent and browser hints
+        if self.config.user_agent:
+            combined_headers = {
+                "User-Agent": self.config.user_agent,
+                "sec-ch-ua": self.config.browser_hint,
+            }
+            combined_headers.update(self.config.headers)
+            await context.set_extra_http_headers(combined_headers)
+
+        # Add default cookie (skip for raw:/file:// URLs which are not valid cookie URLs)
+        cookie_url = None
+        if crawlerRunConfig and crawlerRunConfig.url:
+            url = crawlerRunConfig.url
+            # Only set cookie for http/https URLs
+            if url.startswith(("http://", "https://")):
+                cookie_url = url
+            elif crawlerRunConfig.base_url and crawlerRunConfig.base_url.startswith(("http://", "https://")):
+                # Use base_url as fallback for raw:/file:// URLs
+                cookie_url = crawlerRunConfig.base_url
+
+        if cookie_url:
+            await context.add_cookies(
+                [
+                    {
+                        "name": "cookiesEnabled",
+                        "value": "true",
+                        "url": cookie_url,
+                    }
+                ]
+            )
+
+        # Handle navigator overrides
+        if crawlerRunConfig:
+            if (
+                crawlerRunConfig.override_navigator
+                or crawlerRunConfig.simulate_user
+                or crawlerRunConfig.magic
+            ):
+                await context.add_init_script(load_js_script("navigator_overrider"))
+
+        # Apply custom init_scripts from BrowserConfig (for stealth evasions, etc.)
+        if self.config.init_scripts:
+            for script in self.config.init_scripts:
+                await context.add_init_script(script)
+
+        blocked_extensions = [
+            # Images
+            "jpg",
+            "jpeg",
+            "png",
+            "gif",
+            "webp",
+            "svg",
+            "ico",
+            "bmp",
+            "tiff",
+            "psd",
+            # Fonts
+            "woff",
+            "woff2",
+            "ttf",
+            "otf",
+            "eot",
+            # Styles
+            # 'css', 'less', 'scss', 'sass',
+            # Media
+            "mp4",
+            "webm",
+            "ogg",
+            "avi",
+            "mov",
+            "wmv",
+            "flv",
+            "m4v",
+            "mp3",
+            "wav",
+            "aac",
+            "m4a",
+            "opus",
+            "flac",
+            # Documents
+            "pdf",
+            "doc",
+            "docx",
+            "xls",
+            "xlsx",
+            "ppt",
+            "pptx",
+            # Archives
+            "zip",
+            "rar",
+            "7z",
+            "tar",
+            "gz",
+            # Scripts and data
+            "xml",
+            "swf",
+            "wasm",
+        ]
+
+        # Apply text mode settings if enabled
+        if self.config.text_mode:
+            # Create and apply route patterns for each extension
+            for ext in blocked_extensions:
+                await context.route(f"**/*.{ext}", lambda route: route.abort())
 
     async def create_browser_context(self, crawlerRunConfig: CrawlerRunConfig = None):
         """
@@ -1285,6 +1447,7 @@ class BrowserManager:
             """
 
             context = self.persistent_browser_context
+            await self.setup_persistent_context(context, crawlerRunConfig)
             # Create a new page from the chosen context
             page = await context.new_page()
             await self._apply_stealth_to_page(page)
