@@ -1205,81 +1205,68 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
 
         """
         try:
-            viewport_size = page.viewport_size
-            if viewport_size is None:
+            if page.viewport_size is None:
                 await page.set_viewport_size(
                     {"width": self.browser_config.viewport_width, "height": self.browser_config.viewport_height}
                 )
-                viewport_size = page.viewport_size
 
-            viewport_height = viewport_size.get(
-                "height", self.browser_config.viewport_height
-            )
-            current_position = viewport_height
-
-            origin_dimensions = await self.get_page_dimensions(page)
-            origin_height = origin_dimensions["height"]
-
-            # await page.evaluate(f"window.scrollTo(0, {current_position})")
-            await self.safe_scroll(page, 0, current_position, delay=scroll_delay)
-            if hook and asyncio.iscoroutinefunction(hook):
-                await hook(page)
-            # await self.csp_scroll_to(page, 0, current_position)
-            # await asyncio.sleep(scroll_delay)
-
-            # total_height = await page.evaluate("document.documentElement.scrollHeight")
-            dimensions = await self.get_page_dimensions(page)
+            # 获取初始状态
+            dimensions = await self.get_scroll_page_dimensions(page)
             total_height = dimensions["height"]
 
             scroll_step_count = 0
             scroll_end_retry_count = 0
-
             effective_scroll_count = 0
-            if origin_height < total_height:
-                effective_scroll_count += 1
 
-            # while current_position < total_height:
+            # 设置默认最大重试次数，防止在未传参且页面触底时陷入死循环
+            max_retries = max_scroll_retry_times if max_scroll_retry_times is not None else 3
+
             while True:
-                if max_scroll_retry_times and scroll_end_retry_count >= max_scroll_retry_times:
+                # 检查所有的退出条件
+                if scroll_end_retry_count >= max_retries:
                     break
                 if max_effective_scroll_times and effective_scroll_count >= max_effective_scroll_times:
                     break
-                #### 
-                # NEW FEATURE: Check if we've reached the maximum allowed scroll steps
-                # This prevents infinite scrolling on very long pages or infinite scroll scenarios
-                # If max_scroll_steps is None, this check is skipped (unlimited scrolling - original behavior)
-                ####
                 if max_scroll_steps and scroll_step_count >= max_scroll_steps:
                     break
 
-                if current_position < total_height:
-                    scroll_end_retry_count = 0
-                    current_position = min(current_position + viewport_height, total_height)
-                else:
-                    scroll_end_retry_count += 1
+                # 获取当前真实的滚动状态
+                current_dimensions = await self.get_scroll_page_dimensions(page)
+                current_pos = current_dimensions["current_position"]
+                current_viewport = current_dimensions["viewport_height"]
+                current_total = current_dimensions["height"]
 
-                await self.safe_scroll(page, 0, current_position, delay=scroll_delay)
+                # 判断是否已经触底 (给予 10 像素的容差，防止因浮点数像素导致永远无法触底)
+                is_at_bottom = (current_pos + current_viewport) >= (current_total - 10)
+
+                if is_at_bottom:
+                    scroll_end_retry_count += 1
+                else:
+                    scroll_end_retry_count = 0
+
+                # 执行滚动
+                # 每次只滚动可视高度的 80%，保留 20% 的上下文重叠，防止漏抓刚好卡在边缘的元素
+                # scroll_amount = int(current_viewport * 0.8) if current_viewport > 100 else current_viewport
+
+                await self.safe_scroll(page, 0, current_viewport, delay=scroll_delay)
+
+                # 执行外部钩子
                 if hook and asyncio.iscoroutinefunction(hook):
                     continuous = await hook(page)
                     if not continuous:
                         break
 
-                # Increment the step counter for max_scroll_steps tracking
                 scroll_step_count += 1
-                
-                # await page.evaluate(f"window.scrollTo(0, {current_position})")
-                # await asyncio.sleep(scroll_delay)
 
-                # new_height = await page.evaluate("document.documentElement.scrollHeight")
-                dimensions = await self.get_page_dimensions(page)
-                new_height = dimensions["height"]
+                # 检查页面高度是否因为动态加载（懒加载）而增加
+                new_dimensions = await self.get_scroll_page_dimensions(page)
+                new_height = new_dimensions["height"]
 
                 if new_height > total_height:
                     total_height = new_height
                     effective_scroll_count += 1
-
-            # await page.evaluate("window.scrollTo(0, 0)")
-            await self.safe_scroll(page, 0, 0)
+                    # 发现新内容，重置触底重试次数
+                    scroll_end_retry_count = 0
 
         except Exception as e:
             self.logger.warning(
@@ -1287,9 +1274,6 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
                 tag="PAGE_SCAN",
                 params={"error": str(e)},
             )
-        else:
-            # await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            await self.safe_scroll(page, 0, total_height)
 
     async def _handle_virtual_scroll(self, page: Page, config: "VirtualScrollConfig"):
         """
@@ -2250,7 +2234,8 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
             x: Horizontal scroll position
             y: Vertical scroll position
         """
-        result = await self.csp_scroll_to(page, x, y)
+        # result = await self.csp_scroll_to(page, x, y)
+        result = await self.pagedown_scroll_by(page, x, y)
         if result["success"]:
             await page.wait_for_timeout(delay * 1000)
         return result
@@ -2314,6 +2299,86 @@ class AsyncPlaywrightCrawlerStrategy(AsyncCrawlerStrategy):
                 params={"error": str(e)},
             )
             return {"success": False, "error": str(e)}
+
+    async def pagedown_scroll_by(self, page: Page, x: int, y: int) -> Dict[str, Any]:
+        """
+        Performs a generic scroll operation using mouse wheel.
+        Completely replaces window.scrollTo to support SPAs and Modals without requiring clicks.
+        """
+        try:
+            viewport = page.viewport_size
+            if viewport:
+                center_x = viewport["width"] / 2
+                center_y = viewport["height"] / 2
+
+                # 将鼠标移动到中央
+                # 这一步确保滚轮事件会路由到页面主内容区或弹出的模态框上
+                await page.mouse.move(center_x, center_y)
+
+                # 使用鼠标滚轮向下滚动
+                await page.mouse.wheel(delta_x=x, delta_y=y)
+
+                return {"success": True}
+
+            return {"success": False}
+
+        except Exception as e:
+            self.logger.error(
+                message="Failed to execute generic scroll: {error}",
+                tag="SCROLL",
+                params={"error": str(e)},
+            )
+            return {"success": False, "error": str(e)}
+
+    async def get_scroll_page_dimensions(self, page: Page):
+        """
+        获取当前鼠标悬停位置（屏幕中央）的真实激活滚动容器的尺寸和状态。
+        使用 document.elementFromPoint 模拟浏览器底层的命中测试。
+        """
+        viewport = page.viewport_size or {"width": 1024, "height": 768}
+        center_x = viewport["width"] / 2
+        center_y = viewport["height"] / 2
+
+        # 将坐标作为参数安全地传给 JS
+        return await self.adapter.evaluate(page,
+            """
+            ([cx, cy]) => {
+                let el = document.elementFromPoint(cx, cy);
+
+                // 默认回退到全局滚动对象 (兼容不同浏览器的标准)
+                let scrollContainer = document.scrollingElement || document.documentElement;
+
+                // 顺着 DOM 树向上冒泡，寻找第一个真正的局部滚动容器
+                while (el && el !== document.documentElement && el !== document.body) {
+                    const style = window.getComputedStyle(el);
+                    const overflowY = style.getPropertyValue('overflow-y');
+
+                    const isScrollable = (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay');
+
+                    if (isScrollable && el.scrollHeight > el.clientHeight) {
+                        scrollContainer = el;
+                        break;
+                    }
+                    el = el.parentElement;
+                }
+
+                // 判断是否是全局容器，全局容器的高度获取方式略有不同
+                const isGlobal = (scrollContainer === document.scrollingElement || scrollContainer === document.documentElement);
+
+                const currentPos = isGlobal ? window.scrollY : scrollContainer.scrollTop;
+                const height = scrollContainer.scrollHeight;
+                // 全局容器使用 innerHeight 更准确，局部容器使用 clientHeight
+                const viewportHeight = isGlobal ? window.innerHeight : scrollContainer.clientHeight;
+
+                return {
+                    height: height,
+                    viewport_height: viewportHeight,
+                    current_position: currentPos
+                };
+            }
+            """,
+            [center_x, center_y]  # 传入参数
+        )
 
     async def get_page_dimensions(self, page: Page):
         """
