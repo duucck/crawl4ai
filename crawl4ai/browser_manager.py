@@ -20,7 +20,7 @@ import warnings
 
 BROWSER_DISABLE_OPTIONS = [
     "--disable-background-networking",
-    "--disable-background-timer-throttling",
+    # "--disable-background-timer-throttling",
     "--disable-backgrounding-occluded-windows",
     "--disable-breakpad",
     "--disable-client-side-phishing-detection",
@@ -33,7 +33,7 @@ BROWSER_DISABLE_OPTIONS = [
     "--disable-popup-blocking",
     "--disable-prompt-on-repost",
     "--disable-sync",
-    "--force-color-profile=srgb",
+    # "--force-color-profile=srgb",
     "--metrics-recording-only",
     "--password-store=basic",
     "--use-mock-keychain",
@@ -73,7 +73,7 @@ class ManagedBrowser:
             "--disable-gpu-compositing",
             "--disable-software-rasterizer",
             "--no-sandbox",
-            "--disable-dev-shm-usage",
+            # "--disable-dev-shm-usage",
             "--no-first-run",
             "--no-default-browser-check",
             "--disable-infobars",
@@ -82,11 +82,11 @@ class ManagedBrowser:
             "--ignore-certificate-errors-spki-list",
             "--disable-blink-features=AutomationControlled",
             "--window-position=400,0",
-            "--disable-renderer-backgrounding",
+            # "--disable-renderer-backgrounding",
             "--disable-ipc-flooding-protection",
-            "--force-color-profile=srgb",
+            # "--force-color-profile=srgb",
             "--mute-audio",
-            "--disable-background-timer-throttling",
+            # "--disable-background-timer-throttling",
         ]
         if config.light_mode:
             flags.extend(BROWSER_DISABLE_OPTIONS)
@@ -97,7 +97,7 @@ class ManagedBrowser:
                 "--disable-images",
                 "--disable-javascript",
                 "--disable-software-rasterizer",
-                "--disable-dev-shm-usage",
+                # "--disable-dev-shm-usage",
             ])
         # proxy support
         if config.proxy:
@@ -767,7 +767,7 @@ class BrowserManager:
             "--disable-gpu-compositing",
             "--disable-software-rasterizer",
             "--no-sandbox",
-            "--disable-dev-shm-usage",
+            # "--disable-dev-shm-usage",
             "--no-first-run",
             "--no-default-browser-check",
             "--disable-infobars",
@@ -775,11 +775,11 @@ class BrowserManager:
             "--ignore-certificate-errors-spki-list",
             "--disable-blink-features=AutomationControlled",
             "--window-position=400,0",
-            "--disable-renderer-backgrounding",
+            # "--disable-renderer-backgrounding",
             "--disable-ipc-flooding-protection",
-            "--force-color-profile=srgb",
+            # "--force-color-profile=srgb",
             "--mute-audio",
-            "--disable-background-timer-throttling",
+            # "--disable-background-timer-throttling",
             # "--single-process",
             f"--window-size={self.config.viewport_width},{self.config.viewport_height}",
         ]
@@ -809,8 +809,6 @@ class BrowserManager:
             "height": self.config.viewport_height,
         }
 
-        user_agent = self.config.headers.get("User-Agent", self.config.user_agent)
-
         browser_args = {
             "user_data_dir": self.config.user_data_dir,
             "accept_downloads": self.config.accept_downloads,
@@ -819,9 +817,12 @@ class BrowserManager:
             "args": args,
             "ignore_https_errors": self.config.ignore_https_errors,
             "java_script_enabled": self.config.java_script_enabled,
-            "user_agent": user_agent,
             "device_scale_factor": 1.0,
         }
+
+        user_agent = self.config.headers.get("User-Agent", self.config.user_agent)
+        if user_agent:
+            browser_args["user_agent"] = user_agent
 
         if self.config.chrome_channel:
             browser_args["channel"] = self.config.chrome_channel
@@ -1130,7 +1131,6 @@ class BrowserManager:
             Context: Browser context object with the specified configurations
         """
         # Base settings
-        # user_agent = self.config.headers.get("User-Agent", self.config.user_agent)
         viewport_settings = {
             "width": self.config.viewport_width,
             "height": self.config.viewport_height,
@@ -1194,7 +1194,6 @@ class BrowserManager:
 
         # Common context settings
         context_settings = {
-            # "user_agent": user_agent,
             "viewport": viewport_settings,
             "proxy": proxy_settings,
             "accept_downloads": self.config.accept_downloads,
@@ -1203,7 +1202,11 @@ class BrowserManager:
             "device_scale_factor": 1.0,
             "java_script_enabled": self.config.java_script_enabled,
         }
-        
+
+        user_agent = self.config.headers.get("User-Agent", self.config.user_agent)
+        if user_agent:
+            context_settings["user_agent"] = user_agent
+
         if crawlerRunConfig:
             # Check if there is value for crawlerRunConfig.proxy_config set add that to context
             if crawlerRunConfig.proxy_config:
